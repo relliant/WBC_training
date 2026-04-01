@@ -29,30 +29,33 @@ By Yanjie Ze, Siheng Zhao, Weizhuo Wang, Angjoo Kanazawa†, Rocky Duan†, Piet
 
 
 # Installation
-We will have two conda environments for TWIST2. One is called `twist2`, which can be used for controller training, controller deployment, and teleop data collection. The other is called `gmr`, which can be used for online motion retargeting. This is because isaacgym requires python 3.8, but newest mujoco requires python 3.10.
+We will have two uv virtual environments for TWIST2. One is called `twist2`, which can be used for controller training, controller deployment, and teleop data collection. The other is called `gmr`, which can be used for online motion retargeting. This is because isaacgym requires python 3.8, but newest mujoco requires python 3.10.
 
-**1**. Create conda environment:
+**1**. Create the `twist2` environment with uv:
 ```bash
-conda env remove -n twist2
-conda create -n twist2 python=3.8
-conda activate twist2
+# install uv if needed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# create and activate twist2 env (python 3.8)
+uv venv .venv-twist2 --python 3.8
+source .venv-twist2/bin/activate
 ```
 
 **2**. Install isaacgym. Download from [official link](https://developer.nvidia.com/isaac-gym) and then install it:
 ```bash
-cd isaacgym/python && pip install -e .
+cd isaacgym/python && uv pip install -e .
 ```
 
 **3**. Install packages:
 ```bash
-cd rsl_rl && pip install -e . && cd ..
-cd legged_gym && pip install -e . && cd ..
-cd pose && pip install -e . && cd ..
-pip install "numpy==1.23.0" pydelatin wandb tqdm opencv-python ipdb pyfqmr flask dill gdown hydra-core imageio[ffmpeg] mujoco mujoco-python-viewer isaacgym-stubs pytorch-kinematics rich termcolor zmq
-pip install redis[hiredis] # for redis communication
-pip install pyttsx3 # for voice control
-pip install onnx onnxruntime-gpu # for onnx model inference
-pip install customtkinter # for gui
+cd rsl_rl && uv pip install -e . && cd ..
+cd legged_gym && uv pip install -e . && cd ..
+cd pose && uv pip install -e . && cd ..
+uv pip install "numpy==1.23.0" pydelatin wandb tqdm opencv-python ipdb pyfqmr flask dill gdown hydra-core imageio[ffmpeg] mujoco mujoco-python-viewer isaacgym-stubs pytorch-kinematics rich termcolor zmq
+uv pip install redis[hiredis]
+uv pip install pyttsx3
+uv pip install onnx onnxruntime-gpu
+uv pip install customtkinter
 ```
 
 if this is your first time to use redis, install and start redis server:
@@ -96,15 +99,15 @@ sudo apt-get update
 sudo apt-get install build-essential cmake python3-dev python3-pip pybind11-dev
 
 # Install Python dependencies
-pip install pybind11 pybind11-stubgen numpy
+uv pip install pybind11 pybind11-stubgen numpy
 
 # Build Python SDK binding
 cd python_binding
 export UNITREE_SDK2_PATH=$(pwd)/..
 bash build.sh --sdk-path $UNITREE_SDK2_PATH
 
-# Install the compiled module to your conda environment
-# Get the site-packages path for your current conda environment
+# Install the compiled module to your current uv environment
+# Get the site-packages path for your current environment
 SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
 echo "Installing to: $SITE_PACKAGES"
 
@@ -126,20 +129,23 @@ cd ../..
 **Note**: We also provide our controller ckpt `assets/ckpts/twist2_1017_20k.onnx` for you to test the system directly.
 
 
-**5**. Install GMR for online retargeting and teleop. We use a separate conda environment for GMR/online retargeting due to requiring python 3.10+.
+**5**. Install GMR for online retargeting and teleop. We use a separate uv virtual environment for GMR/online retargeting due to requiring python 3.10+.
 ```bash
-conda create -n gmr python=3.10 -y
-conda activate gmr
+# create and activate gmr env (python 3.10)
+uv venv .venv-gmr --python 3.10
+source .venv-gmr/bin/activate
 
 git clone https://github.com/YanjieZe/GMR.git
 
 cd GMR
 
 # install GMR
-pip install -e .
+uv pip install -e .
 cd ..
 
-conda install -c conda-forge libstdcxx-ng -y
+# runtime dependency often needed by mujoco/torch binaries
+sudo apt-get update
+sudo apt-get install -y libstdc++6
 
 ```
 
@@ -154,7 +160,7 @@ conda install -c conda-forge libstdcxx-ng -y
         then you should see `xrobotoolkit-pc-service` in your APPs. remember to start this app before you do teleopperation.
     - Build PICO PC Service SDK and Python SDK for PICO streaming:
         ```bash
-        conda activate gmr
+        source .venv-gmr/bin/activate
 
         git clone https://github.com/YanjieZe/XRoboToolkit-PC-Service-Pybind.git
         cd XRoboToolkit-PC-Service-Pybind
@@ -175,8 +181,8 @@ conda install -c conda-forge libstdcxx-ng -y
         # rm -rf tmp
 
         # Build the project
-        conda install -c conda-forge pybind11
-        pip uninstall -y xrobotoolkit_sdk
+        uv pip install pybind11
+        uv pip uninstall xrobotoolkit_sdk
         python setup.py install
         ```
 
