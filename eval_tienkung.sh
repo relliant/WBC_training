@@ -3,7 +3,7 @@
 # Example: bash eval_tienkung.sh 0330_tienkung_twist2 cuda:0
 
 # You can specify a specific motion file here to evaluate on
-# motion_file="/path/to/your/specific/tienkung_motion.pkl"
+motion_file="/data/gmr_dataset/ACCAD_GMR/Female1Walking_c3d/B10_-_walk_turn_left_(45)_stageii.pkl"
 
 task_name="tienkung_stu_future"
 proj_name="tienkung_stu_future"
@@ -24,7 +24,7 @@ python play.py --task "${task_name}" \
                --teacher_exptid "None" \
                --exptid "${exptid}" \
                --num_envs 1 \
-               --device "${device}" 
-               # --env.motion.motion_file "${motion_file}" \
+               --device "${device}" \
+               --motion.motion_file "${motion_file}" \
                # --checkpoint 1000 \
                # --record_video \
