@@ -33,8 +33,8 @@ def generate_config_yaml(folder_path, output_yaml_path):
         yaml.dump(config, yaml_file, default_flow_style=False, sort_keys=False)
 
 # Specify your folder path and output YAML file
-folder_path = "/home/dedsecer/Downloads/TWIST2_full"
-output_yaml_path = "twist.yaml"
+folder_path = "/data/gmr_dataset"
+output_yaml_path = "tienkung.yaml"
 
 generate_config_yaml(folder_path, output_yaml_path)
 print(f"YAML configuration file generated: {output_yaml_path}")
