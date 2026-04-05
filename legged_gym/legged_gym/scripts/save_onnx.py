@@ -12,6 +12,7 @@ from rsl_rl.modules.actor_critic_future import ActorFuture, get_activation
 import argparse
 from termcolor import cprint
 import numpy as np
+import re
 
 class HardwareStudentFutureNN(nn.Module):
     """Hardware deployment wrapper for student policy with future motion support."""
@@ -71,6 +72,65 @@ class HardwareStudentFutureNN(nn.Module):
         obs = self.normalizer.normalize(obs)
         return self.actor(obs)
 
+
+def infer_model_config_from_checkpoint(ac_state_dict):
+    """Infer student-future model dimensions directly from checkpoint tensors."""
+    model_state_dict = ac_state_dict['model_state_dict']
+
+    # Core dimensions from first-layer weights of each encoder/backbone.
+    num_motion_observations = model_state_dict['actor.motion_encoder.encoder.0.weight'].shape[1]
+    single_history_obs = model_state_dict['actor.history_encoder.encoder.0.weight'].shape[1]
+    num_priop_observations = single_history_obs - num_motion_observations
+    # num_actions is inferred from the last linear layer in actor_backbone.
+    num_actions = None
+
+    # FutureMotionEncoder flattens (steps * (single_future_obs - 1)) into Linear input.
+    future_flat_obs = model_state_dict['actor.future_encoder.encoder.0.weight'].shape[1]
+    num_future_steps = 1
+    num_future_observations = future_flat_obs + 1
+
+    # History length from total observation dimension saved by normalizer.
+    if ac_state_dict.get('normalizer') is None:
+        raise ValueError("Checkpoint does not include normalizer; cannot infer num_observations.")
+    normalizer_state = ac_state_dict['normalizer'].state_dict()
+    num_observations = int(normalizer_state['_mean'].shape[0])
+
+    current_obs = num_motion_observations + num_priop_observations
+    history_numerator = num_observations - current_obs - num_future_observations
+    if history_numerator < 0 or history_numerator % current_obs != 0:
+        raise ValueError(
+            f"Failed to infer history_len from checkpoint: num_obs={num_observations}, "
+            f"current_obs={current_obs}, future_obs={num_future_observations}"
+        )
+    history_len = history_numerator // current_obs
+
+    # Hidden dims from 2D linear layers in actor_backbone (ignore LayerNorm 1D weights).
+    backbone_linear = []
+    for key, value in model_state_dict.items():
+        match = re.match(r'actor\.actor_backbone\.(\d+)\.weight$', key)
+        if match and value.dim() == 2:
+            backbone_linear.append((int(match.group(1)), value.shape))
+    backbone_linear.sort(key=lambda x: x[0])
+    if len(backbone_linear) < 2:
+        raise ValueError("Unexpected actor_backbone structure in checkpoint.")
+    actor_hidden_dims = [int(shape[0]) for _, shape in backbone_linear[:-1]]
+    num_actions = int(backbone_linear[-1][1][0])
+
+    return {
+        'num_observations': num_observations,
+        'num_motion_observations': int(num_motion_observations),
+        'num_priop_observations': int(num_priop_observations),
+        'num_motion_steps': 1,
+        'num_future_observations': int(num_future_observations),
+        'num_future_steps': int(num_future_steps),
+        'num_actions': int(num_actions),
+        'history_len': int(history_len),
+        'actor_hidden_dims': actor_hidden_dims,
+        'motion_latent_dim': int(model_state_dict['actor.motion_encoder.linear_output.weight'].shape[0]),
+        'history_latent_dim': int(model_state_dict['actor.history_encoder.linear_output.weight'].shape[0]),
+        'future_latent_dim': int(model_state_dict['actor.future_encoder.encoder.6.weight'].shape[0]),
+    }
+
 def convert_to_onnx(args):
     """Convert g1_stu_future student policy to ONNX."""
     
@@ -81,65 +141,42 @@ def convert_to_onnx(args):
         cprint(f"Error: Checkpoint file not found: {ckpt_path}", "red")
         return
     
-    # G1 student future configuration - EXACT DIMENSIONS FROM DEBUG
-    robot_name = "g1"
-    num_actions = 29
-    history_len = 10
-    
-    # Motion observations (current frame only for student)
-    num_motion_steps = 1
-    num_motion_observations = 35  # n_mimic_obs = len(tar_motion_steps) * n_mimic_obs_single = 1 * 35
-    
-    # Proprioceptive observations
-    num_priop_observations = 92  # n_proprio from debug output
-    
-    # Future motion observations
-    num_future_steps = 1  # len(tar_motion_steps_future)
-    n_future_obs_single = 35  # 35 dims per frame
-    num_future_observations = num_future_steps * n_future_obs_single  # n_future_obs = 1 * 35 = 35
-    
-    # Single step observation size (for history)
-    n_obs_single = 127  # n_mimic_obs + n_proprio = 35 + 92 = 127
-    
-    # Total observation size
-    num_observations = n_obs_single * (history_len + 1) + num_future_observations  # 127 * 11 + 360 = 1757
-    
-    # Network architecture parameters
-    motion_latent_dim = 128
-    future_latent_dim = 128
-    history_latent_dim = 128
-    actor_hidden_dims = [512, 512, 256, 128]
-    activation = 'silu'
-    
-    print(f"G1 Student Future Policy Configuration:")
-    print(f"  Robot: {robot_name}")
-    print(f"  Actions: {num_actions}")
-    print(f"  History length: {history_len}")
-    print(f"  Motion observations: {num_motion_observations}")
-    print(f"  Proprioceptive observations: {num_priop_observations}")
-    print(f"  Future observations: {num_future_observations}")
-    print(f"  Single obs size: {n_obs_single}")
-    print(f"  Total observations: {num_observations}")
-    print(f"  Motion latent dim: {motion_latent_dim}")
-    print(f"  Future latent dim: {future_latent_dim}")
-    print(f"  History latent dim: {history_latent_dim}")
-    print("")
-    
+    # Load trained model first so we can infer architecture from checkpoint.
+    cprint(f"Loading model from: {ckpt_path}", "green")
     device = torch.device('cuda')
+    ac_state_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
+    cfg = infer_model_config_from_checkpoint(ac_state_dict)
+    activation = 'silu'
+
+    n_obs_single = cfg['num_motion_observations'] + cfg['num_priop_observations']
+    print("Student Future Policy Configuration (inferred from checkpoint):")
+    print(f"  Actions: {cfg['num_actions']}")
+    print(f"  History length: {cfg['history_len']}")
+    print(f"  Motion observations: {cfg['num_motion_observations']}")
+    print(f"  Proprioceptive observations: {cfg['num_priop_observations']}")
+    print(f"  Future observations: {cfg['num_future_observations']}")
+    print(f"  Single obs size: {n_obs_single}")
+    print(f"  Total observations: {cfg['num_observations']}")
+    print(f"  Motion latent dim: {cfg['motion_latent_dim']}")
+    print(f"  Future latent dim: {cfg['future_latent_dim']}")
+    print(f"  History latent dim: {cfg['history_latent_dim']}")
+    print(f"  Actor hidden dims: {cfg['actor_hidden_dims']}")
+    print("")
+
     policy = HardwareStudentFutureNN(
-        num_observations=num_observations,
-        num_motion_observations=num_motion_observations,
-        num_priop_observations=num_priop_observations,
-        num_motion_steps=num_motion_steps,
-        num_future_observations=num_future_observations,
-        num_future_steps=num_future_steps,
-        motion_latent_dim=motion_latent_dim,
-        future_latent_dim=future_latent_dim,
-        num_actions=num_actions,
-        actor_hidden_dims=actor_hidden_dims,
+        num_observations=cfg['num_observations'],
+        num_motion_observations=cfg['num_motion_observations'],
+        num_priop_observations=cfg['num_priop_observations'],
+        num_motion_steps=cfg['num_motion_steps'],
+        num_future_observations=cfg['num_future_observations'],
+        num_future_steps=cfg['num_future_steps'],
+        motion_latent_dim=cfg['motion_latent_dim'],
+        future_latent_dim=cfg['future_latent_dim'],
+        num_actions=cfg['num_actions'],
+        actor_hidden_dims=cfg['actor_hidden_dims'],
         activation=activation,
-        history_latent_dim=history_latent_dim,
-        num_history_steps=history_len,
+        history_latent_dim=cfg['history_latent_dim'],
+        num_history_steps=cfg['history_len'],
         layer_norm=True,
         tanh_encoder_output=False,
         use_history_encoder=True,
@@ -147,11 +184,6 @@ def convert_to_onnx(args):
         
     ).to(device)
 
-    # Load trained model
-    cprint(f"Loading model from: {ckpt_path}", "green")
-    
-    # Load with weights_only=False to avoid the warning for now
-    ac_state_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
     policy.load_state_dict(ac_state_dict['model_state_dict'], strict=False)
     policy.load_normalizer(ac_state_dict['normalizer'])
     
@@ -162,7 +194,7 @@ def convert_to_onnx(args):
     with torch.no_grad(): 
         # Create dummy input with correct observation structure
         batch_size = 1  # Use batch size 1 for simplicity
-        obs_input = torch.ones(batch_size, num_observations, device=device)
+        obs_input = torch.ones(batch_size, cfg['num_observations'], device=device)
         cprint(f"Input observation shape: {obs_input.shape}", "cyan")
         
         # Generate ONNX path with same name but .onnx extension
