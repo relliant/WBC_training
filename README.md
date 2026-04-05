@@ -197,7 +197,10 @@ And we have also provided full motion datasets to ensure you can successfully tr
 
 **1**. Training TWIST2 general motion tracker:
 ```bash
+# For G1:
 bash train.sh 1021_twist2 cuda:0
+# For Tienkung:
+bash train_tienkung.sh 0403_tienkung cuda:0
 ```
 - arg 1: policy expid
 - arg 2: cuda device id
@@ -213,13 +216,19 @@ bash to_onnx.sh $YOUR_POLICY_PATH
 
 [If this is your first time to run this script] you need to warm up the redis server by running the high-level motion server.
 ```bash
+# For G1:
 bash run_motion_server.sh
+# For Tienkung:
+bash run_motion_server.sh tienkung /path/to/your_motion.pkl
 ```
 You can also just select one motion file from our motion dataset by modifying the `motion_file` in `run_motion_server.sh`.
 
 Then, you can run the low-level controller server in simulation.
 ```bash
+# For G1:
 bash sim2sim.sh
+# For Tienkung:
+bash sim2sim_tienkung.sh
 ```
 - This will start a simulation that runs the low-level controller only.
 - This is because we separate the high-level control (i.e., teleop) from the low-level control (i.e., RL policy).
