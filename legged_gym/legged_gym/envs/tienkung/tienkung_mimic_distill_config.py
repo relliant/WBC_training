@@ -67,55 +67,68 @@ class TienkungMimicPrivCfg(HumanoidMimicCfg):
         horizontal_scale = 0.1
     
     class init_state(HumanoidMimicCfg.init_state):
-        pos = [0, 0, 0.95]  # Tienkung standing height (Base_link at ~1.0m in MJCF)
+        pos = [0, 0, 1.0]  # Tienkung standing height (from MJCF: Base_link pos="0 0 1.0")
         default_joint_angles = {
             # Left Leg
-            'hip_roll_l_joint': 0.0,
-            'hip_pitch_l_joint': -0.2,
-            'hip_yaw_l_joint': 0.0,
-            'knee_pitch_l_joint': 0.4,
-            'ankle_pitch_l_joint': -0.2,
-            'ankle_roll_l_joint': 0.0,
-            
+            'hip_roll_l_joint':   0.0,
+            'hip_pitch_l_joint':  -0.5,
+            'hip_yaw_l_joint':    0.0,
+            'knee_pitch_l_joint': 1.0,
+            'ankle_pitch_l_joint': -0.5,
+            'ankle_roll_l_joint':  0.0,
+
             # Right Leg
-            'hip_roll_r_joint': 0.0,
-            'hip_pitch_r_joint': -0.2,
-            'hip_yaw_r_joint': 0.0,
-            'knee_pitch_r_joint': 0.4,
-            'ankle_pitch_r_joint': -0.2,
-            'ankle_roll_r_joint': 0.0,
-            
-            # Left Arm
+            'hip_roll_r_joint':   0.0,
+            'hip_pitch_r_joint':  -0.5,
+            'hip_yaw_r_joint':    0.0,
+            'knee_pitch_r_joint': 1.0,
+            'ankle_pitch_r_joint': -0.5,
+            'ankle_roll_r_joint':  0.0,
+
+            # Left Arm — closer to body
             'shoulder_pitch_l_joint': 0.0,
-            'shoulder_roll_l_joint': 0.4,
-            'shoulder_yaw_l_joint': 0.0,
-            'elbow_pitch_l_joint': -0.8,
-            
-            # Right Arm
+            'shoulder_roll_l_joint':  0.1,
+            'shoulder_yaw_l_joint':   0.0,
+            'elbow_pitch_l_joint':    -0.3,
+
+            # Right Arm — closer to body
             'shoulder_pitch_r_joint': 0.0,
-            'shoulder_roll_r_joint': -0.4,
-            'shoulder_yaw_r_joint': 0.0,
-            'elbow_pitch_r_joint': -0.8,
+            'shoulder_roll_r_joint':  -0.1,
+            'shoulder_yaw_r_joint':   0.0,
+            'elbow_pitch_r_joint':    -0.3,
         }
     
     class control(HumanoidMimicCfg.control):
-        # PD gains tuned for Tienkung actuators
-        stiffness = {'hip_yaw': 100,
-                    'hip_roll': 100,
-                    'hip_pitch': 100,
-                    'knee': 150,
-                    'ankle': 40,
-                    'shoulder': 40,
-                    'elbow': 40,
-                    }  # [N*m/rad]
-        damping = {  'hip_yaw': 2,
-                    'hip_roll': 2,
-                    'hip_pitch': 2,
-                    'knee': 4,
-                    'ankle': 2,
-                    'shoulder': 5,
-                    'elbow': 5,
-                    }  # [N*m*s/rad]
+        # PD gains sourced directly from GMR/assets/tienkung/mjcf/tienkung.xml
+        # stiffness = kp values from <actuator> <position kp=...> tags
+        # damping   = damping values from <joint damping=...> tags
+        stiffness = {
+            'hip_roll':  700,
+            'hip_pitch': 700,
+            'hip_yaw':   500,
+            'knee':      700,
+            'ankle_pitch': 30,
+            'ankle_roll':  16.8,
+            'shoulder_pitch': 60,
+            'shoulder_roll':  20,
+            'shoulder_yaw':   10,
+            'elbow':          10,
+        }  # [N*m/rad]
+        damping = {
+            # Legs - from MJCF joint damping attributes
+            'hip_roll':  10,
+            'hip_pitch': 10,
+            'hip_yaw':   5,
+            'knee':      10,
+            # Ankles
+            'ankle_pitch': 2.5,
+            'ankle_roll':  1.4,
+            # Arms
+            'shoulder_pitch': 3,
+            'shoulder_roll':  1.5,
+            'shoulder_yaw':   1,
+            'elbow':          1,
+        }  # [N*m*s/rad]
 
         action_scale = 0.5
         decimation = 10
