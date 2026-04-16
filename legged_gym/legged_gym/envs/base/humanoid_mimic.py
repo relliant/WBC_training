@@ -433,7 +433,8 @@ class HumanoidMimic(HumanoidChar):
         
         if self._pose_termination:
             body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] - self.rigid_body_states[:, 0:1, 0:3]
-            tar_body_pos = self._ref_body_pos[:, self._key_body_ids] - self._ref_root_pos[:, None, :] 
+            # Use motion key-body indices for reference motion tensors.
+            tar_body_pos = self._ref_body_pos[:, self._key_body_ids_motion] - self._ref_root_pos[:, None, :] 
             
             if not self.global_obs:
                 body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], body_pos)
@@ -662,8 +663,12 @@ class HumanoidMimic(HumanoidChar):
                     obs_buf.unsqueeze(1)
                 ], dim=1)
             )
-        
-            
+
+        if getattr(self.cfg.env, "enable_amp", False):
+            self.extras["amp_obs"] = self._get_amp_obs().detach()
+            self.extras["amp_demo_obs"] = self._get_amp_demo_obs().detach()
+
+
     def _get_noise_scale_vec(self, cfg):
         noise_scale_vec = torch.zeros(1, self.cfg.env.n_proprio, device=self.device)
         if not self.cfg.noise.add_noise:
@@ -676,8 +681,47 @@ class HumanoidMimic(HumanoidChar):
         noise_scale_vec[:, noise_start_dim+(ang_vel_dim+imu_dim):noise_start_dim+(ang_vel_dim+imu_dim)+self.num_dof] = self.cfg.noise.noise_scales.dof_pos
         noise_scale_vec[:, noise_start_dim+(ang_vel_dim+imu_dim)+self.num_dof:noise_start_dim+(ang_vel_dim+imu_dim)+2*self.num_dof] = self.cfg.noise.noise_scales.dof_vel
         return noise_scale_vec
-    
-    
+
+    def _get_amp_obs(self):
+        key_body_pos = self.rigid_body_states[:, self._key_body_ids, :3]
+        key_body_pos = key_body_pos - self.root_states[:, None, :3]
+        key_body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], key_body_pos).reshape(self.num_envs, -1)
+
+        amp_obs = torch.cat((
+            self.root_states[:, 0:3],
+            self.root_states[:, 3:7],
+            self.base_lin_vel,
+            self.base_ang_vel,
+            torch.stack((self.roll, self.pitch), dim=1),
+            self.base_ang_vel[:, 2:3],
+            self.reindex(self.dof_pos),
+            self.reindex(self.dof_vel),
+            key_body_pos,
+            self.reindex(self.action_history_buf[:, -1]),
+        ), dim=-1)
+        return amp_obs
+
+    def _get_amp_demo_obs(self):
+        key_body_pos = self._ref_body_pos[:, self._key_body_ids, :3]
+        key_body_pos = key_body_pos - self._ref_root_pos[:, None, :3]
+        key_body_pos = convert_to_local_root_body_pos(self._ref_root_rot, key_body_pos).reshape(self.num_envs, -1)
+
+        ref_roll, ref_pitch, _ = euler_from_quaternion(self._ref_root_rot)
+        amp_demo_obs = torch.cat((
+            self._ref_root_pos,
+            self._ref_root_rot,
+            self._ref_root_vel,
+            self._ref_root_ang_vel,
+            torch.stack((ref_roll, ref_pitch), dim=1),
+            self._ref_root_ang_vel[:, 2:3],
+            self.reindex(self._ref_dof_pos),
+            self.reindex(self._ref_dof_vel),
+            key_body_pos,
+            self.reindex(self._ref_dof_vel),
+        ), dim=-1)
+        return amp_demo_obs
+
+
     # ================== rewards ==================
     def _reward_alive(self):
         return 1.
@@ -823,7 +867,7 @@ class HumanoidMimic(HumanoidChar):
         
         # key_body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], key_body_pos)
         key_body_pos = convert_to_local_root_body_pos(base_yaw_quat, key_body_pos)
-        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
+        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids_motion, :]
         tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
         _, _, ref_yaw = euler_from_quaternion(self._ref_root_rot)
         ref_yaw_quat = quat_from_euler_xyz(0*ref_yaw, 0*ref_yaw, ref_yaw)
@@ -841,7 +885,7 @@ class HumanoidMimic(HumanoidChar):
         key_body_pos = self.rigid_body_states[:, self._key_body_ids, 0:3] # (num_envs, num_key_bodies, 3)
         # key_body_pos = key_body_pos - self.root_states[:, 0:3].unsqueeze(1)
         
-        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
+        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids_motion, :]
         # tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
         
         key_body_pos_diff = key_body_pos - tar_key_body_pos
@@ -997,7 +1041,7 @@ class HumanoidMimic(HumanoidChar):
             base_yaw_quat = quat_from_euler_xyz(0*self.yaw, 0*self.yaw, self.yaw)
             # key_body_pos = convert_to_local_root_body_pos(self.root_states[:, 3:7], key_body_pos)
             key_body_pos = convert_to_local_root_body_pos(base_yaw_quat, key_body_pos)
-        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
+        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids_motion, :]
         tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
         if not self.global_obs:
             _, _, ref_yaw = euler_from_quaternion(self._ref_root_rot)
@@ -1017,7 +1061,7 @@ class HumanoidMimic(HumanoidChar):
             base_yaw_quat = quat_from_euler_xyz(0*self.yaw, 0*self.yaw, self.yaw)
             key_body_pos = convert_to_local_root_body_pos(base_yaw_quat, key_body_pos)
         
-        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids, :]
+        tar_key_body_pos = self._ref_body_pos[:, self._key_body_ids_motion, :]
         tar_key_body_pos = tar_key_body_pos - self._ref_root_pos.unsqueeze(1)
         if not self.global_obs:
             _, _, ref_yaw = euler_from_quaternion(self._ref_root_rot)
